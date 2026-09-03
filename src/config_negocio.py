@@ -1,79 +1,73 @@
-# Em vez de deixar esses numeros espalhados e escritos direto no meio
-# do codigo (o que dificulta manutencao e auditoria), coloquei tudo
-# organizado em um dicionario Python. Assim, se a empresa mudar algum
-# limite (por exemplo, a meta de compliance ambiental), so precisa
-# alterar aqui nesse arquivo, sem precisar mexer na logica do sistema
-# em outros lugares.
+# src/config_negocio.py
 
 REGRAS_NEGOCIO = {
-
-    # regras de densidade da carga transportada
-    "densidade_carga": {
-        "minima_kg_por_m3": 300,     # abaixo disso, o caminhao ta rodando "vazio demais"
-        "maxima_kg_por_m3": 800,     # acima disso, passa do limite seguro pro veiculo
-        "unidade": "kg/m3",
+    # Mapeamento de densidade para cálculo de volume real
+    "materiais": {
+        "PLASTICO": {"densidade_kg_por_m3": 200},
+        "VIDRO": {"densidade_kg_por_m3": 800},
+        "METAL": {"densidade_kg_por_m3": 400},
     },
-
-    # regras de compliance ambiental da frota (Green IT / sustentabilidade)
+    
+    "frota": {
+        "capacidade_maxima_m3": 20.0,
+    },
+    
+    # Metas de sustentabilidade (Green IT)
     "compliance_ambiental": {
-        "limite_emissao_co2_kg_por_km": 2.5,     # limite maximo de emissao aceitavel
-        "percentual_minimo_carga_retorno": 30,   # abaixo de 30% de carga no retorno = viagem ociosa
-        "meta_reducao_emissao_percentual": 15,   # meta anual de reducao de emissao da frota
+        "limite_emissao_co2_kg_por_km": 2.5,
+        "percentual_minimo_carga_retorno": 30.0,
+        "meta_reducao_emissao_percentual": 15.0,
     },
-
-    # custos usados pra calcular o prejuizo de rodar com pouca carga
+    
+    # Custos para precificar o desperdício
     "custos_operacionais": {
-        "custo_km_rodado_reais": 3.50,        # custo medio de rodar 1 km (manutencao, pedagio etc)
+        "custo_km_rodado_reais": 3.50,
         "custo_combustivel_litro_reais": 6.20,
-        "consumo_medio_km_por_litro": 3.0,    # quantos km o caminhao roda com 1 litro
+        "consumo_medio_km_por_litro": 3.0,
     },
+    
+    # Regras de infraestrutura e processamento
+    "governanca_ti": {
+        "estrategia_processamento": "STREAMING_EVENTOS",
+        "retencao_dados_hot_storage_dias": 90,
+        "auditoria_log_ativa": True
+    }
 }
 
 
-def calcular_custo_ociosidade(percentual_carga_retorno, distancia_km):
-    """
-    Calcula o custo de ociosidade quando o caminhao volta com menos de
-    30% da carga (limite definido em compliance_ambiental).
+def calcular_custo_ociosidade(peso_kg: float, tipo_material: str, distancia_km: float) -> float:
+    tipo_material = tipo_material.upper()
+    if tipo_material not in REGRAS_NEGOCIO["materiais"]:
+        raise ValueError("Material não cadastrado.")
 
-    A ideia: se o caminhao voltou quase vazio, ele gastou combustivel e
-    km rodado sem aproveitar a capacidade do veiculo. Isso gera custo
-    financeiro extra pra empresa E impacto ambiental desnecessario
-    (emissao de CO2 por um transporte pouco eficiente).
-    """
+    # 1. Converte o peso em volume real ocupado na caçamba
+    densidade = REGRAS_NEGOCIO["materiais"][tipo_material]["densidade_kg_por_m3"]
+    volume_m3 = peso_kg / densidade
+    
+    capacidade_max = REGRAS_NEGOCIO["frota"]["capacidade_maxima_m3"]
+    percentual_carga = (volume_m3 / capacidade_max) * 100
 
     limite = REGRAS_NEGOCIO["compliance_ambiental"]["percentual_minimo_carga_retorno"]
 
-    # se a carga de retorno ta dentro do limite, nao tem custo de ociosidade
-    if percentual_carga_retorno >= limite:
-        return 0
+    if percentual_carga >= limite:
+        return 0.0
 
+    # 2. Calcula o custo operacional total da viagem
     custo_km = REGRAS_NEGOCIO["custos_operacionais"]["custo_km_rodado_reais"]
-    custo_combustivel = REGRAS_NEGOCIO["custos_operacionais"]["custo_combustivel_litro_reais"]
-    consumo_km_litro = REGRAS_NEGOCIO["custos_operacionais"]["consumo_medio_km_por_litro"]
+    custo_comb = REGRAS_NEGOCIO["custos_operacionais"]["custo_combustivel_litro_reais"]
+    consumo = REGRAS_NEGOCIO["custos_operacionais"]["consumo_medio_km_por_litro"]
 
-    # custo total da viagem de volta (km rodado + combustivel gasto)
-    custo_km_total = distancia_km * custo_km
-    litros_gastos = distancia_km / consumo_km_litro
-    custo_combustivel_total = litros_gastos * custo_combustivel
+    custo_viagem = (distancia_km * custo_km) + ((distancia_km / consumo) * custo_comb)
 
-    custo_viagem = custo_km_total + custo_combustivel_total
-
-    # a parte "ociosa" é proporcional ao espaco vazio que sobrou no caminhao
-    # ex: se voltou com 10% de carga, 90% da viagem foi desperdicio
-    percentual_ocioso = (100 - percentual_carga_retorno) / 100
-
-    custo_ociosidade = round(custo_viagem * percentual_ocioso, 2)
-
-    return custo_ociosidade
+    # 3. Penaliza financeiramente apenas a porcentagem que faltou para atingir a meta
+    fator_desperdicio = (limite - percentual_carga) / limite
+    
+    return round(custo_viagem * fator_desperdicio, 2)
 
 
-# teste rapido, só pra ver se ta calculando certo (rodar com: python3 src/config_negocio.py)
 if __name__ == "__main__":
-    print("Regras de negocio carregadas:")
-    print(REGRAS_NEGOCIO)
-    print()
-
-    # exemplo: caminhao voltou com 10% de carga, numa viagem de 200 km
-    exemplo_custo = calcular_custo_ociosidade(10, 200)
-    print("Exemplo -> carga de retorno: 10%, distancia: 200km")
-    print("Custo de ociosidade estimado: R$", exemplo_custo)
+    # Exemplo: 600kg de plástico em 200km. 
+    # Volume será de 3m³ (15% da frota), ficando 15% abaixo da meta de 30%.
+    custo = calcular_custo_ociosidade(peso_kg=600, tipo_material="PLASTICO", distancia_km=200)
+    
+    print(f"Custo de ociosidade estimado: R$ {custo}")

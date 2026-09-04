@@ -62,3 +62,9 @@ python3 src/config_negocio.py
 
 Isso mostra as regras carregadas e um exemplo de calculo (caminhao
 voltando com 10% de carga numa viagem de 200 km).
+
+## Atualizações no `src/config_negocio.py**` de Italo.
+
+* **Volume Real por Densidade:** A ocupação do caminhão agora é calculada usando o peso específico de cada material (Plástico, Vidro, Metal), e não mais de forma manual.
+* **Custo de Ociosidade Justo:** A penalidade financeira agora é cobrada proporcionalmente apenas sobre o que faltou para atingir a meta de 30%, corrigindo distorções no cálculo.
+* **Governança (Green IT):** Inclusão das políticas de TI Verde, como processamento via eventos (streaming) e retenção inteligente de dados, para reduzir a pegada de carbono.
